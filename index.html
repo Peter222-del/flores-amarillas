@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Flores Amarillas 🌻</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital@1&family=Lato:wght@300&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0800;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+    font-family: 'Lato', sans-serif;
+  }
+
+  canvas {
+    display: block;
+    max-width: 100vw;
+  }
+
+  .message-wrap {
+    text-align: center;
+    padding: 0 24px;
+    margin-top: 10px;
+    opacity: 0;
+    transform: translateY(10px);
+    animation: riseIn 2.5s ease 3.5s forwards;
+  }
+
+  .message {
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+    font-size: clamp(14px, 4vw, 22px);
+    color: #FFD700;
+    text-shadow: 0 0 30px rgba(255, 210, 0, 0.5), 0 0 60px rgba(255, 180, 0, 0.2);
+    letter-spacing: 0.04em;
+    line-height: 1.5;
+  }
+
+  .sub {
+    margin-top: 6px;
+    font-size: clamp(10px, 2.5vw, 13px);
+    color: rgba(255, 200, 50, 0.5);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+  }
+
+  @keyframes riseIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="message-wrap">
+  <div class="message">A ti no te van a faltar tus flores amarillas, mi amor 🌻</div>
+  <div class="sub">feliz día de las flores amarillas</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  const s = Math.min(window.innerWidth, window.innerHeight * 0.78, 560);
+  canvas.width = s;
+  canvas.height = s;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- Smooth noise ---
+function fade(t) { return t * t * t * (t * (t * 6 - 15) + 10); }
+function lerpN(a, b, t) { return a + (b - a) * t; }
+function hash(n) { let x = Math.sin(n) * 43758.5453123; return x - Math.floor(x); }
+function noise1(x) {
+  const i = Math.floor(x), f = x - i;
+  return lerpN(hash(i), hash(i+1), fade(f));
+}
+function noise2(x, y) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const a = hash(ix + hash(iy));
+  const b = hash(ix+1 + hash(iy));
+  const c = hash(ix + hash(iy+1));
+  const d = hash(ix+1 + hash(iy+1));
+  return lerpN(lerpN(a,b,fade(fx)), lerpN(c,d,fade(fx)), fade(fy));
+}
+
+// --- Petal class ---
+// Each petal is a curved stroke that rotates around the center
+// It pulses in/out with stagger
+class Petal {
+  constructor(idx, total, layer) {
+    this.idx = idx;
+    this.total = total;
+    this.layer = layer; // 0=outer, 1=mid, 2=inner
+
+    this.baseAngle = (idx / total) * Math.PI * 2;
+    this.phase = (idx / total) * Math.PI * 2 + layer * 1.1 + Math.random() * 0.4;
+    this.freq = 0.008 + Math.random() * 0.005;
+
+    // Size depends on layer
+    const sizes = [1.0, 0.72, 0.48];
+    this.sizeScale = sizes[layer] * (0.88 + Math.random() * 0.24);
+
+    // Yellow palette: bright gold to deep amber
+    const yellows = [
+      [255, 230, 0],
+      [255, 210, 10],
+      [255, 185, 0],
+      [255, 160, 0],
+      [240, 200, 20],
+      [255, 240, 60],
+    ];
+    const [r,g,b] = yellows[Math.floor(Math.random() * yellows.length)];
+    this.r = r; this.g = g; this.b = b;
+
+    this.rotSpeed = (Math.random() - 0.5) * 0.0003;
+    this.rot = Math.random() * Math.PI * 2;
+
+    this.seed = Math.random() * 100;
+  }
+
+  draw(tick) {
+    const s = canvas.width;
+    const cx = s / 2;
+    const cy = s / 2;
+    const baseR = s * 0.38 * this.sizeScale;
+
+    // Pulse progress 0→1→0
+    const raw = Math.sin(tick * this.freq + this.phase);
+    const progress = (raw + 1) / 2;
+
+    this.rot += this.rotSpeed;
+
+    const angle = this.baseAngle + this.rot;
+
+    // Petal tip position
+    const tipR = baseR * progress;
+    const tipX = cx + Math.cos(angle) * tipR;
+    const tipY = cy + Math.sin(angle) * tipR;
+
+    // Control points for bezier — give petals a soft curved shape
+    const cpAngle1 = angle - 0.35;
+    const cpAngle2 = angle + 0.35;
+    const cpR = baseR * progress * 0.65;
+
+    const cp1x = cx + Math.cos(cpAngle1) * cpR;
+    const cp1y = cy + Math.sin(cpAngle1) * cpR;
+    const cp2x = cx + Math.cos(cpAngle2) * cpR;
+    const cp2y = cy + Math.sin(cpAngle2) * cpR;
+
+    const alpha = Math.pow(progress, 0.5) * (0.55 + Math.random() * 0.2);
+
+    // Draw petal body
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.bezierCurveTo(cp1x, cp1y, tipX + (cp1x - cx) * 0.3, tipY + (cp1y - cy) * 0.3, tipX, tipY);
+    ctx.bezierCurveTo(tipX + (cp2x - cx) * 0.3, tipY + (cp2y - cy) * 0.3, cp2x, cp2y, cx, cy);
+
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, tipR);
+    grad.addColorStop(0, `rgba(${this.r},${this.g},${Math.min(this.b+80,255)},${alpha * 0.6})`);
+    grad.addColorStop(0.5, `rgba(${this.r},${this.g},${this.b},${alpha})`);
+    grad.addColorStop(1, `rgba(${Math.max(this.r-40,0)},${Math.max(this.g-60,0)},0,0)`);
+
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Vein line down the middle of the petal
+    if (progress > 0.2) {
+      const veinAlpha = alpha * 0.35;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.quadraticCurveTo(
+        cx + Math.cos(angle) * tipR * 0.5,
+        cy + Math.sin(angle) * tipR * 0.5,
+        tipX, tipY
+      );
+      ctx.strokeStyle = `rgba(255,255,100,${veinAlpha})`;
+      ctx.lineWidth = 0.6 * this.sizeScale;
+      ctx.stroke();
+    }
+  }
+}
+
+// --- Spiral seed dots (fibonacci) ---
+class SeedDot {
+  constructor(i, total) {
+    this.i = i;
+    this.total = total;
+    const phi = Math.PI * (3 - Math.sqrt(5)); // golden angle
+    this.angle = i * phi;
+    this.r_frac = Math.sqrt(i / total);
+    this.phase = i * 0.08;
+    this.size = 1.2 + Math.random() * 1.2;
+  }
+
+  draw(tick) {
+    const s = canvas.width;
+    const cx = s / 2, cy = s / 2;
+    const maxR = s * 0.13;
+
+    const pulse = 0.7 + 0.3 * Math.sin(tick * 0.015 + this.phase);
+    const r = this.r_frac * maxR * pulse;
+
+    const x = cx + Math.cos(this.angle) * r;
+    const y = cy + Math.sin(this.angle) * r;
+
+    const alpha = 0.5 + 0.5 * Math.sin(tick * 0.02 + this.phase);
+
+    ctx.beginPath();
+    ctx.arc(x, y, this.size * pulse, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,220,0,${alpha * 0.9})`;
+    ctx.fill();
+  }
+}
+
+// --- Floating particle sparks ---
+class Spark {
+  constructor() { this.reset(); }
+  reset() {
+    const s = canvas.width;
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.random() * s * 0.45;
+    this.x = s/2 + Math.cos(angle) * r;
+    this.y = s/2 + Math.sin(angle) * r;
+    this.vx = (Math.random() - 0.5) * 0.4;
+    this.vy = -0.2 - Math.random() * 0.5;
+    this.life = 0;
+    this.maxLife = 60 + Math.random() * 120;
+    this.size = 0.5 + Math.random() * 1.5;
+    this.hue = 45 + Math.random() * 20;
+  }
+  update() {
+    this.x += this.vx;
+    this.y += this.vy;
+    this.life++;
+    if (this.life > this.maxLife) this.reset();
+  }
+  draw() {
+    const frac = this.life / this.maxLife;
+    const alpha = Math.sin(frac * Math.PI) * 0.7;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 100%, 75%, ${alpha})`;
+    ctx.fill();
+  }
+}
+
+// Build objects
+const PETAL_OUTER = 16;
+const PETAL_MID   = 12;
+const PETAL_INNER = 8;
+
+const petals = [
+  ...Array.from({length: PETAL_OUTER}, (_, i) => new Petal(i, PETAL_OUTER, 0)),
+  ...Array.from({length: PETAL_MID},   (_, i) => new Petal(i, PETAL_MID,   1)),
+  ...Array.from({length: PETAL_INNER}, (_, i) => new Petal(i, PETAL_INNER, 2)),
+];
+
+const seeds = Array.from({length: 80}, (_, i) => new SeedDot(i, 80));
+const sparks = Array.from({length: 55}, () => new Spark());
+
+// Stagger spark start
+sparks.forEach((sp, i) => { sp.life = Math.floor(Math.random() * sp.maxLife); });
+
+let tick = 0;
+
+function loop() {
+  const s = canvas.width;
+  const cx = s/2, cy = s/2;
+
+  // Fade to dark
+  ctx.fillStyle = 'rgba(10,8,0,0.22)';
+  ctx.fillRect(0, 0, s, s);
+
+  tick++;
+
+  // Outer ambient glow
+  const outerGlow = ctx.createRadialGradient(cx, cy, s*0.05, cx, cy, s*0.55);
+  outerGlow.addColorStop(0, 'rgba(80,50,0,0.04)');
+  outerGlow.addColorStop(0.5, 'rgba(40,25,0,0.03)');
+  outerGlow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = outerGlow;
+  ctx.fillRect(0, 0, s, s);
+
+  // Draw petals (outer → inner)
+  petals.forEach(p => p.draw(tick));
+
+  // Center golden glow
+  const cglow = ctx.createRadialGradient(cx, cy, 0, cx, cy, s * 0.15);
+  cglow.addColorStop(0, 'rgba(255,230,50,0.55)');
+  cglow.addColorStop(0.4, 'rgba(255,180,0,0.25)');
+  cglow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = cglow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Seed dots
+  seeds.forEach(sd => sd.draw(tick));
+
+  // Center disc
+  const disc = ctx.createRadialGradient(cx, cy, 0, cx, cy, s * 0.07);
+  disc.addColorStop(0, 'rgba(255,245,100,0.9)');
+  disc.addColorStop(0.5, 'rgba(220,160,0,0.7)');
+  disc.addColorStop(1, 'rgba(100,60,0,0)');
+  ctx.fillStyle = disc;
+  ctx.beginPath();
+  ctx.arc(cx, cy, s * 0.07, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sparks
+  sparks.forEach(sp => { sp.update(); sp.draw(); });
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
